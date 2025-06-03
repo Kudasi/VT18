@@ -1,5 +1,6 @@
 from telebot import TeleBot
 from telebot.types import *
+from math import prod
 
 class Game:
 
@@ -11,11 +12,13 @@ class Game:
 
     field : dict[str, int]
     active_player : int
+    history : list[str]
 
     def __init__(self, player1, player2):
         self.player1 = player1
         self.player2 = player2
         self.active_player = player1
+        self.history = []
         self.field = {
             "00": 0, "10": 0, "20": 0, 
             "01": 0, "11": 0, "21": 0, 
@@ -24,8 +27,8 @@ class Game:
           # 1 - Нулик
           # 2 - Хрестик
 
-with 
-bot = TeleBot()
+with open("token.txt", "r") as f:
+    bot = TeleBot(f.read().strip())
 
 lobby_keyboard = ReplyKeyboardMarkup()
 lobby_keyboard.add("Find opponent ⚔️")
@@ -45,6 +48,26 @@ def create_message_keyboard(game):
     return InlineKeyboardMarkup(row_width=3).\
     add(*[InlineKeyboardButton((" ", "O", "X")[game.field[i+j]], callback_data=i+j) for i in "012" for j in "012"])
 
+def check_winner(game):
+    # Перевірка рядків
+    for i in "012":
+        p = prod(game.field[j+i] for j in "012")
+        if p == 1: return 1
+        if p == 8: return 2
+    # Перевірка ствбців
+    for i in "012":
+        p = prod(game.field[i+j] for j in "012")
+        if p == 1: return 1
+        if p == 8: return 2
+    # Перевірка діагоналей
+    p = prod(game.field[i+i] for i in "012")
+    if p == 1: return 1
+    if p == 8: return 2
+
+    p = prod(game.field[i] for i in ("02", "11", "20"))
+    if p == 1: return 1
+    if p == 8: return 2
+
 @bot.message_handler(commands=['start'])
 def on_start(msg):
     bot.send_message(msg.from_user.id, "Select action below.", reply_markup=lobby_keyboard)
@@ -52,6 +75,9 @@ def on_start(msg):
 @bot.message_handler(regexp="Find opponent ⚔️")
 def on_find_opponent(msg):
     global lobby
+    if msg.from_user.id == lobby:
+        bot.send_message(msg.from_user.id, "You are already looking for an opponent!")
+        return
     if lobby > -1:
         player1 = msg.from_user.id
         player2 = lobby
@@ -65,7 +91,7 @@ def on_find_opponent(msg):
         
         game.player1_msg = bot.send_message(player1, create_message_text(game, player1), reply_markup=create_message_keyboard(game)).id
         game.player2_msg = bot.send_message(player2, create_message_text(game, player2), reply_markup=create_message_keyboard(game)).id
-
+        lobby = -1
     else:
         lobby = msg.from_user.id
 
@@ -86,11 +112,15 @@ def on_button_press(callback):
         return
     
     game.field[callback.data] = 2 if game.active_player == game.player1 else 1
+    game.history.append(callback.data)
+    if len(game.history) == 7:
+        game.field[game.history[0]] = 0
+        del game.history[0]
     game.active_player = game.player2 if game.active_player == game.player1 else game.player1
     keyboard = create_message_keyboard(game)
     bot.edit_message_text(create_message_text(game, game.player1), game.player1, game.player1_msg, reply_markup=keyboard)
     bot.edit_message_text(create_message_text(game, game.player2), game.player2, game.player2_msg, reply_markup=keyboard)
-    bot.answer_callback_query(callback.id, "Move accepted!")    
+    bot.answer_callback_query(callback.id)
 
 
 
