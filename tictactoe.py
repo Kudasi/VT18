@@ -122,7 +122,4 @@ def on_button_press(callback):
     bot.edit_message_text(create_message_text(game, game.player2), game.player2, game.player2_msg, reply_markup=keyboard)
     bot.answer_callback_query(callback.id)
 
-
-
-
 bot.polling(non_stop=True)
