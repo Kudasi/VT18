@@ -1,6 +1,7 @@
 from telebot import TeleBot
 from telebot.types import *
 from math import prod
+import json
 
 class Game:
 
@@ -39,6 +40,7 @@ game_keyboard.add("Stop game ⏹️")
 
 games = {}
 lobby = -1
+stats = json.load(open("stats.json", "r"))
 
 def create_message_text(game, player):
     return f"You are playing as {'X' if game.player1 == player else 'O'}\n\n" \
@@ -70,6 +72,7 @@ def check_winner(game):
 
 @bot.message_handler(commands=['start'])
 def on_start(msg):
+    if msg.from_user.id not in stats: stats[msg.from_user.id] = [0, 0]
     bot.send_message(msg.from_user.id, "Select action below.", reply_markup=lobby_keyboard)
 
 @bot.message_handler(regexp="Find opponent ⚔️")
@@ -94,6 +97,12 @@ def on_find_opponent(msg):
         lobby = -1
     else:
         lobby = msg.from_user.id
+        
+@bot.message_handler(regexp="My statistic 📊")
+def on_my_statistic(msg):
+    bot.send_message(msg.from_user.id, "Your statistic:\n\n" \
+                     f"Losses: {stats[msg.from_user.id][0]}\n" \
+                     f"Wins:   {stats[msg.from_user.id][1]}", reply_markup=lobby_keyboard)
 
 @bot.callback_query_handler(func=lambda a: True)
 def on_button_press(callback):
@@ -120,6 +129,16 @@ def on_button_press(callback):
     keyboard = create_message_keyboard(game)
     bot.edit_message_text(create_message_text(game, game.player1), game.player1, game.player1_msg, reply_markup=keyboard)
     bot.edit_message_text(create_message_text(game, game.player2), game.player2, game.player2_msg, reply_markup=keyboard)
+    winner = check_winner(game)
+    print(winner)
+    if winner:
+        bot.send_message(game.player1, f"You {'won' if winner == 2 else 'lost'} the game!", reply_markup=lobby_keyboard)
+        bot.send_message(game.player2, f"You {'won' if winner == 1 else 'lost'} the game!", reply_markup=lobby_keyboard)
+        del games[game.player1]
+        del games[game.player2]
+        stats[game.player1][winner - 1] += 1
+        stats[game.player2][2 - winner] += 1
+        with open("stats.json", "w") as f: json.dump(stats, f)        
     bot.answer_callback_query(callback.id)
 
 bot.polling(non_stop=True)
