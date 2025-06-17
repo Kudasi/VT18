@@ -2,6 +2,8 @@ from telebot import TeleBot
 from telebot.types import *
 from math import prod
 import json
+import time
+import threading
 
 class Game:
 
@@ -14,12 +16,15 @@ class Game:
     field : dict[str, int]
     active_player : int
     history : list[str]
+    
+    last_turn_time : float
 
     def __init__(self, player1, player2):
         self.player1 = player1
         self.player2 = player2
         self.active_player = player1
         self.history = []
+        self.last_turn_time = time.time()
         self.field = {
             "00": 0, "10": 0, "20": 0, 
             "01": 0, "11": 0, "21": 0, 
@@ -72,7 +77,7 @@ def check_winner(game):
 
 @bot.message_handler(commands=['start'])
 def on_start(msg):
-    if msg.from_user.id not in stats: stats[msg.from_user.id] = [0, 0]
+    if str(msg.from_user.id) not in stats: stats[str(msg.from_user.id)] = [0, 0]
     bot.send_message(msg.from_user.id, "Select action below.", reply_markup=lobby_keyboard)
 
 @bot.message_handler(regexp="Find opponent ⚔️")
@@ -101,8 +106,26 @@ def on_find_opponent(msg):
 @bot.message_handler(regexp="My statistic 📊")
 def on_my_statistic(msg):
     bot.send_message(msg.from_user.id, "Your statistic:\n\n" \
-                     f"Losses: {stats[msg.from_user.id][0]}\n" \
-                     f"Wins:   {stats[msg.from_user.id][1]}", reply_markup=lobby_keyboard)
+                     f"Losses: {stats[str(msg.from_user.id)][0]}\n" \
+                     f"Wins:   {stats[str(msg.from_user.id)][1]}", reply_markup=lobby_keyboard)
+
+@bot.message_handler(regexp="Stop game ⏹️")
+def on_stop_game(msg):
+    game = games[msg.from_user.id]
+    
+    winner = game.player2 if msg.from_user.id == game.player1 else game.player1
+    loser = game.player1 if winner == game.player2 else game.player2
+    
+    stats[str(winner)][1] += 1
+    stats[str(loser)][0] += 1
+    
+    json.dump(stats, open("stats.json", "w"))
+    
+    bot.send_message(winner, "Your opponent has surrender. You won the game!", reply_markup=lobby_keyboard)
+    bot.send_message(loser, "You have surrender. You lost the game!", reply_markup=lobby_keyboard)
+    
+    del games[game.player1]
+    del games[game.player2]
 
 @bot.callback_query_handler(func=lambda a: True)
 def on_button_press(callback):
@@ -126,6 +149,7 @@ def on_button_press(callback):
         game.field[game.history[0]] = 0
         del game.history[0]
     game.active_player = game.player2 if game.active_player == game.player1 else game.player1
+    game.last_turn_time = time.time()
     keyboard = create_message_keyboard(game)
     bot.edit_message_text(create_message_text(game, game.player1), game.player1, game.player1_msg, reply_markup=keyboard)
     bot.edit_message_text(create_message_text(game, game.player2), game.player2, game.player2_msg, reply_markup=keyboard)
@@ -136,9 +160,34 @@ def on_button_press(callback):
         bot.send_message(game.player2, f"You {'won' if winner == 1 else 'lost'} the game!", reply_markup=lobby_keyboard)
         del games[game.player1]
         del games[game.player2]
-        stats[game.player1][winner - 1] += 1
-        stats[game.player2][2 - winner] += 1
+        stats[str(game.player1)][winner - 1] += 1
+        stats[str(game.player2)][2 - winner] += 1
         with open("stats.json", "w") as f: json.dump(stats, f)        
     bot.answer_callback_query(callback.id)
+    
+def time_check():
+    while True:
+        time.sleep(1)
+        games_copy = games.copy()
+        for player, game in games_copy.items():
+            if player != game.active_player:
+                continue
+            
+            if time.time() - game.last_turn_time > 30:
+                winner = game.player2 if game.active_player == game.player1 else game.player1
+                loser = game.player1 if winner == game.player2 else game.player2
+                
+                stats[str(winner)][1] += 1
+                stats[str(loser)][0] += 1
+                
+                json.dump(stats, open("stats.json", "w"))
+                
+                bot.send_message(winner, "You won the game due to your opponent's inactivity!", reply_markup=lobby_keyboard)
+                bot.send_message(loser, "You lost the game due to inactivity!", reply_markup=lobby_keyboard)
+                
+                del games[game.player1]
+                del games[game.player2]
+                
+threading.Thread(target=time_check, daemon=True).start()
 
 bot.polling(non_stop=True)
